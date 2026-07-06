@@ -7,11 +7,12 @@ import { cn } from "@/lib/utils";
 import type { CurrentUser } from "@/lib/auth/user-context";
 
 const SEED_USERS: { id: string; username: string; displayName: string }[] = [
-  { id: "op1", username: "op1", displayName: "仓库操作员 op1" },
-  { id: "qc1", username: "qc1", displayName: "品控主管 qc1" },
-  { id: "l1", username: "l1", displayName: "L1 审批员 l1" },
-  { id: "l2", username: "l2", displayName: "L2 审批员 l2" },
-  { id: "admin", username: "admin", displayName: "系统管理员 admin" },
+  // id 必须与数据库实际 username 一致（后端 route.ts 会先按 id 查，再按 username fallback）
+  { id: "op1", username: "op1", displayName: "仓库操作员-小王 (WAREHOUSE_OPERATOR)" },
+  { id: "qc1", username: "qc1", displayName: "品控主管-老李 (QC_SUPERVISOR)" },
+  { id: "l1_approver", username: "l1_approver", displayName: "一级审批-张主管 (APPROVER_L1)" },
+  { id: "l2_approver", username: "l2_approver", displayName: "二级审批-王经理 (APPROVER_L2)" },
+  { id: "admin", username: "admin", displayName: "系统管理员 admin (ADMIN)" },
 ];
 
 interface AppRoleSwitcherProps {
