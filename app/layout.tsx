@@ -11,6 +11,9 @@ export const metadata: Metadata = {
   description: "运单全生命周期管理 - 异常上报、审批、品控、赔付联动、同步监控",
 };
 
+// 全站设为动态渲染，避免客户端 Hook（useSearchParams 等）导致静态预渲染失败
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: {
