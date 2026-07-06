@@ -1,6 +1,5 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import crypto from "node:crypto";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -50,17 +49,18 @@ export function generateTicketNo(date?: Date, seq: number = 1): string {
 }
 
 export async function sha256Hex(input: string): Promise<string> {
+  // 使用 Web Crypto API（globalThis.crypto）——浏览器与 Node.js 18+ 均可使用，无 node:crypto 依赖
   const encoder = new TextEncoder();
   const data = encoder.encode(input);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashBuffer = await globalThis.crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export function sha256HexSync(input: string): string {
-  return crypto.createHash("sha256").update(input, "utf8").digest("hex");
-}
+// 同步 SHA-256 已迁移到 lib/crypto-node.ts（仅服务端可用，避免客户端打包时引入 node:crypto）
+// 如需服务端同步哈希，请导入：import { sha256HexSync } from "@/lib/crypto-node"
 
 export function requestId(): string {
-  return crypto.randomUUID();
+  // globalThis.crypto.randomUUID() 兼容浏览器和 Node.js 19+
+  return globalThis.crypto.randomUUID();
 }
