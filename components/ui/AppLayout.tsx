@@ -121,7 +121,16 @@ export function AppLayout({ children }: AppLayoutProps) {
 
           <div className="flex-1 max-w-md hidden md:block">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search
+                role="button"
+                tabIndex={0}
+                aria-label="搜索（与 Enter 键等价）"
+                onClick={handleSearchSubmit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSearchSubmit();
+                }}
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 cursor-pointer hover:text-teal-600 transition-colors select-none"
+              />
               <input
                 type="text"
                 placeholder="搜索工单号、运单号..."
