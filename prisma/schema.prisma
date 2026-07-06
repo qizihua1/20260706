@@ -1,0 +1,402 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  WAREHOUSE_OPERATOR
+  QC_SUPERVISOR
+  APPROVER_L1
+  APPROVER_L2
+  ADMIN
+}
+
+enum SyncDirection {
+  CALL_V2
+  RECEIVE_WEBHOOK
+}
+
+enum ErrorCategory {
+  NETWORK_TIMEOUT
+  AUTH
+  NOT_FOUND
+  BAD_PARAM
+  V2_SERVER_ERROR
+  UNKNOWN
+}
+
+enum TicketSource {
+  SCAN_TRIGGER
+  MANUAL_REPORT
+}
+
+enum TicketCategory {
+  LOGISTICS
+  QC
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TicketStatus {
+  PENDING_REVIEW
+  L1_APPROVING
+  L2_APPROVING
+  EXECUTING
+  REJECTED_RESUBMIT
+  COMPLETED
+  CLOSED_AUTO_DISMISSED
+  ESCALATED_AUTO
+}
+
+enum ApprovalAction {
+  APPROVED
+  REJECTED
+  ESCALATED
+  AUTO_TIMEOUT_ESCALATE
+  AUTO_TIMEOUT_DISMISS
+  QUICK_RELEASE_QC
+}
+
+enum CompensationDirection {
+  PAY_TO_CUSTOMER
+  RECOVER_FROM_SUPPLIER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  RECEIVED
+  CANCELLED
+}
+
+enum InventoryReason {
+  QC_REJECT_RETURN_SUPPLIER
+  QC_RELEASE
+  QC_DOWNGRADE_SALE
+  LOGISTICS_LOST_RESHIP
+  LOGISTICS_RETURN_STOCK
+  LOGISTICS_RESHIP_NEW
+  MANUAL_ADJUST
+  REPURCHASE_IN
+}
+
+enum QcResult {
+  PASSED
+  HELD
+}
+
+enum QcBatchStatus {
+  FREE
+  LOCKED
+  RELEASED
+  RETURNED_SUPPLIER
+  DOWNGRADED
+  SCRAPPED
+}
+
+enum QcRuleCategory {
+  QTY_DIFF
+  DAMAGE
+  SPEC_MISMATCH
+  LABEL_ERROR
+  BATCH_ERROR
+}
+
+enum ThresholdScope {
+  GLOBAL
+  BY_CATEGORY
+  BY_SEVERITY
+}
+
+model users {
+  id             String    @id @default(cuid())
+  username       String    @unique
+  displayName    String?
+  roles          String[]
+  passwordHash   String?
+  email          String?
+  isActive       Boolean   @default(true)
+  disabledAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  reportedTickets  exception_tickets[] @relation("ReporterTickets")
+  l1AssignedTickets exception_tickets[] @relation("L1AssigneeTickets")
+  l2AssignedTickets exception_tickets[] @relation("L2AssigneeTickets")
+  approvalRecords  approval_records[]
+  triggeredCompensations compensation_records[] @relation("CompensationTrigger")
+  inventoryOperations inventory_records[] @relation("InventoryOperator")
+  scanRecords      scan_records[] @relation("ScanOperator")
+  qcReleases       scan_records[] @relation("QcSupervisorRelease")
+  syncCaller       sync_logs[]
+
+  @@index([username])
+  @@index([roles])
+  @@map("users")
+}
+
+model waybill_snapshots {
+  id              String   @id @default(cuid())
+  waybillId       String   @unique
+  externalCode    String?
+  storeName       String?
+  recipientName   String?
+  recipientPhone  String?
+  recipientAddress String?
+  v2Status        String?
+  totalAmount     Decimal? @db.Decimal(12, 2)
+  itemsSnapshot   Json
+  sourceUrl       String?
+  syncedAt        DateTime
+  syncRequestId   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tickets        exception_tickets[]
+  scanRecords    scan_records[]
+
+  @@index([waybillId])
+  @@index([externalCode])
+  @@index([syncedAt])
+  @@map("waybill_snapshots")
+}
+
+model sync_logs {
+  id               String        @id @default(cuid())
+  direction        SyncDirection
+  interfaceName    String
+  httpMethod       String
+  requestUrl       String
+  requestBodySha256 String?
+  responseStatusCode Int?
+  responseBodySha256  String?
+  requestId        String        @unique
+  durationMs       Int
+  errorCategory    ErrorCategory?
+  errorMessage     String?       @db.VarChar(1000)
+  retryAttempt     Int           @default(0)
+  callerUserId     String?
+  createdAt        DateTime      @default(now())
+
+  caller           users?        @relation(fields: [callerUserId], references: [id])
+
+  @@index([requestId])
+  @@index([interfaceName])
+  @@index([createdAt])
+  @@index([errorCategory])
+  @@map("sync_logs")
+}
+
+model exception_tickets {
+  id                      String         @id @default(cuid())
+  ticketNo                String         @unique
+  source                  TicketSource
+  category                TicketCategory
+  subType                 String
+  severity                Severity
+  currentStatus           TicketStatus
+  waybillSnapshotId       String
+  relatedWaybillId        String
+  reportedByUserId        String
+  reportedAt              DateTime
+  description             String         @db.Text
+  evidenceUrls            Json?
+  amount                  Decimal        @db.Decimal(12, 2) @default(0)
+  approvalLevelRequired   Int
+  l1AssigneeId            String?
+  l2AssigneeId            String?
+  resubmitCount           Int            @default(0)
+  lastStatusChangedAt     DateTime
+  deadlineAt              DateTime?
+  escalatedAt             DateTime?
+  closedAt                DateTime?
+  approvalRuleSnapshot    Json?
+  qcBatchLockId           String?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  version                 Int            @default(0)
+
+  waybillSnapshot         waybill_snapshots @relation(fields: [waybillSnapshotId], references: [id])
+  reporter                users             @relation("ReporterTickets", fields: [reportedByUserId], references: [id])
+  l1Assignee              users?            @relation("L1AssigneeTickets", fields: [l1AssigneeId], references: [id])
+  l2Assignee              users?            @relation("L2AssigneeTickets", fields: [l2AssigneeId], references: [id])
+  approvalRecords         approval_records[]
+  compensationRecords     compensation_records[]
+  inventoryRecords        inventory_records[]
+  scanRecords             scan_records[]
+
+  @@index([ticketNo])
+  @@index([waybillSnapshotId])
+  @@index([reportedByUserId])
+  @@index([currentStatus])
+  @@index([deadlineAt])
+  @@index([source, category])
+  @@map("exception_tickets")
+}
+
+model approval_records {
+  id               String          @id @default(cuid())
+  ticketId         String
+  approverUserId   String
+  level            Int
+  action           ApprovalAction
+  comment          String?         @db.Text
+  beforeStatus     String
+  afterStatus      String
+  conflictDetected Boolean         @default(false)
+  detectedReason   String?
+  idempotencyKey   String          @unique
+  createdAt        DateTime        @default(now())
+
+  ticket           exception_tickets @relation(fields: [ticketId], references: [id])
+  approver         users             @relation(fields: [approverUserId], references: [id])
+  compensation     compensation_records?
+  inventoryRecords inventory_records[]
+
+  @@index([ticketId])
+  @@index([approverUserId])
+  @@index([level])
+  @@index([createdAt])
+  @@map("approval_records")
+}
+
+model compensation_records {
+  id               String                @id @default(cuid())
+  ticketId         String
+  approvalRecordId String                @unique
+  direction        CompensationDirection
+  amount           Decimal               @db.Decimal(12, 2)
+  currency         String                @default("CNY")
+  paymentStatus    PaymentStatus
+  paymentMethod    String?
+  voucherNo        String?
+  remark           String?
+  triggeredByUserId String?
+  createdAt        DateTime              @default(now())
+
+  ticket           exception_tickets     @relation(fields: [ticketId], references: [id])
+  approvalRecord   approval_records      @relation(fields: [approvalRecordId], references: [id])
+  triggeredBy      users?                @relation("CompensationTrigger", fields: [triggeredByUserId], references: [id])
+
+  @@index([direction])
+  @@index([paymentStatus])
+  @@index([ticketId])
+  @@map("compensation_records")
+}
+
+model inventory_records {
+  id               String          @id @default(cuid())
+  ticketId         String
+  approvalRecordId String?
+  skuCode          String
+  skuName          String?
+  batchNo          String?
+  changeQty        Int
+  uom              String          @default("件")
+  reason           InventoryReason
+  beforeStockQty   Int?
+  afterStockQty    Int?
+  warehouseCode    String?
+  operatorUserId   String?
+  remark           String?
+  createdAt        DateTime        @default(now())
+
+  ticket           exception_tickets @relation(fields: [ticketId], references: [id])
+  approvalRecord   approval_records? @relation(fields: [approvalRecordId], references: [id])
+  operator         users?            @relation("InventoryOperator", fields: [operatorUserId], references: [id])
+
+  @@index([skuCode, batchNo])
+  @@index([ticketId])
+  @@index([reason])
+  @@map("inventory_records")
+}
+
+model scan_records {
+  id                       String        @id @default(cuid())
+  scanNo                   String        @unique
+  waybillSnapshotId        String
+  relatedWaybillId         String
+  skuCode                  String
+  skuName                  String?
+  batchNo                  String
+  scanQty                  Int           @default(1)
+  scannedByUserId          String?
+  scanDevice               String?
+  qcResult                 QcResult
+  qcRuleHitId              String?
+  qcRuleHitDetail          Json?
+  qcBatchStatus            QcBatchStatus @default(FREE)
+  holdReason               String?
+  ticketId                 String?
+  qcSupervisorReleaseNote  String?
+  qcSupervisorReleaseByUserId String?
+  createdAt                DateTime      @default(now())
+
+  waybillSnapshot          waybill_snapshots @relation(fields: [waybillSnapshotId], references: [id])
+  scannedBy                users?            @relation("ScanOperator", fields: [scannedByUserId], references: [id])
+  qcRuleHit                qc_rules?         @relation(fields: [qcRuleHitId], references: [id])
+  ticket                   exception_tickets? @relation(fields: [ticketId], references: [id])
+  qcSupervisorReleaseBy    users?            @relation("QcSupervisorRelease", fields: [qcSupervisorReleaseByUserId], references: [id])
+
+  @@index([batchNo, skuCode, qcBatchStatus])
+  @@index([ticketId])
+  @@index([scanNo])
+  @@map("scan_records")
+}
+
+model qc_rules {
+  id                   String         @id @default(cuid())
+  ruleCode             String         @unique
+  ruleName             String
+  category             QcRuleCategory
+  triggerCondition     Json           @default("{}")
+  severity             Severity       @default(MEDIUM)
+  autoCreateTicket     Boolean        @default(true)
+  routeToApprovalLevel Int            @default(2)
+  isEnabled            Boolean        @default(true)
+  sortOrder            Int            @default(0)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  scanHits             scan_records[]
+
+  @@map("qc_rules")
+}
+
+model approval_thresholds {
+  id                   String        @id @default(cuid())
+  ruleCode             String        @unique
+  scope                ThresholdScope
+  category             String?
+  severity             String?
+  minAmount            Decimal       @db.Decimal(12, 2) @default(0)
+  maxAmount            Decimal?      @db.Decimal(12, 2)
+  approvalLevel        Int
+  timeoutMinutes       Int
+  qcHoldTimeoutMinutes Int?
+  isEnabled            Boolean       @default(true)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@index([scope, category, severity])
+  @@map("approval_thresholds")
+}
+
+model roles_permissions {
+  id          String  @id @default(cuid())
+  role        String
+  permission  String
+  description String?
+
+  @@unique([role, permission])
+  @@map("roles_permissions")
+}
