@@ -168,10 +168,12 @@ export async function POST(
         orderBy: { createdAt: "desc" },
       });
 
+      // refine 已保证 executeAction 在 VALID_ACTIONS 中 → TS 类型安全断言
+      const __executeAction = input.executeAction as ExecuteAction;
       const res = await executeApprovalActionsInTx(tx, {
         ticket,
         approvalRecord: latestApproved,
-        executeAction: input.executeAction,
+        executeAction: __executeAction,
         payoutAmount:
           input.payoutAmount !== undefined
             ? Number(input.payoutAmount)
