@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
-import { sha256HexSync, requestId as genRequestId } from "./utils";
+import { requestId as genRequestId } from "./utils";
+import { sha256HexSync } from "./crypto-node";
 import type { Prisma } from "@prisma/client";
 
 export interface V2ShipmentItem {
