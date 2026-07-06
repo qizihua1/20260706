@@ -50,8 +50,9 @@ export function AppRoleSwitcher({
       });
       const data = await res.json();
       if (data.ok) {
-        toast.success(`已切换到 ${data.data.displayName ?? data.data.username}`);
-        onUserChanged?.(data.data);
+        const user = data.newUser;
+        toast.success(`已切换到 ${user?.displayName ?? user?.username}`);
+        onUserChanged?.(user);
         setTimeout(() => window.location.reload(), 300);
       } else {
         toast.error(data.error ?? "切换失败");
