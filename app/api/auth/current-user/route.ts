@@ -60,9 +60,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const targetUser = await prisma.users.findUnique({
-      where: { id: parsed.data.targetUserId },
-    });
+    // 既支持按用户 UUID id 查询，也支持按 username 查询（兼容前端短 id）
+    let targetUser =
+      (await prisma.users.findUnique({
+        where: { id: parsed.data.targetUserId },
+      })) ??
+      (await prisma.users.findUnique({
+        where: { username: parsed.data.targetUserId },
+      }));
     if (!targetUser || !targetUser.isActive) {
       return NextResponse.json(
         {
