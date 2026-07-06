@@ -20,7 +20,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       .then((r) => r.json())
       .then((res) => {
         if (res.ok) {
-          setCurrentUser(res.data);
+          setCurrentUser(res.currentUser);
         }
       })
       .catch(() => {});
