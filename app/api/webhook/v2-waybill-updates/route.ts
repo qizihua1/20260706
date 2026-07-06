@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requestId, sha256HexSync } from "@/lib/utils";
+import { requestId } from "@/lib/utils";
+import { sha256HexSync } from "@/lib/crypto-node";
 import { V2ApiError } from "@/lib/v2-api-client";
 import {
   OptimisticConcurrencyError,
