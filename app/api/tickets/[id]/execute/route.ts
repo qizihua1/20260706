@@ -33,20 +33,62 @@ const VALID_ACTIONS: ExecuteAction[] = [
   "LOGISTICS_ADDRESS_FIX_RESHIP",
 ];
 
-const PostBodySchema = z.object({
-  executeAction: z.enum(VALID_ACTIONS as [ExecuteAction, ...ExecuteAction[]]),
-  payoutAmount: z.coerce.number().min(0).optional(),
-  reshipmentSku: z
-    .array(
-      z.object({
-        skuCode: z.string().min(1),
-        skuName: z.string().optional(),
-        qty: z.coerce.number().int().min(1),
-      })
-    )
-    .optional(),
-  remark: z.string().optional(),
-});
+// 向后兼容：E2E 使用 action + amountPaid 字段名，与后端 executeAction + payoutAmount 映射
+const EXECUTE_ACTION_COMPAT_MAP: Record<string, ExecuteAction> = {
+  COMPENSATE_AND_RESHIP: "LOGISTICS_RETURN_RESHIP",
+  COMPENSATE_CUSTOMER: "LOGISTICS_COMPENSATE_ONLY",
+  COMPENSATE: "LOGISTICS_COMPENSATE_ONLY",
+  RESHIP: "LOGISTICS_RESHIP",
+  RETURN_RESHIP: "LOGISTICS_RETURN_RESHIP",
+  ADDRESS_FIX_RESHIP: "LOGISTICS_ADDRESS_FIX_RESHIP",
+  QC_RELEASE: "QC_RELEASE",
+  QC_RETURN: "QC_RETURN_SUPPLIER",
+  QC_REPURCHASE: "QC_REPURCHASE",
+  QC_DOWNGRADE: "QC_DOWNGRADE",
+};
+
+const PostBodySchema = z
+  .object({
+    executeAction: z.enum(VALID_ACTIONS as [ExecuteAction, ...ExecuteAction[]]).optional(),
+    action: z.string().optional(), // 兼容旧字段
+    payoutAmount: z.coerce.number().min(0).optional(),
+    amountPaid: z.coerce.number().min(0).optional(), // 兼容旧字段
+    reshipmentSku: z
+      .array(
+        z.object({
+          skuCode: z.string().min(1),
+          skuName: z.string().optional(),
+          qty: z.coerce.number().int().min(1),
+        })
+      )
+      .optional(),
+    remark: z.string().optional(),
+  })
+  .transform((val) => {
+    // 字段兼容映射
+    const finalExecuteAction =
+      val.executeAction ??
+      (val.action
+        ? EXECUTE_ACTION_COMPAT_MAP[String(val.action).toUpperCase()] ??
+          (val.action as ExecuteAction)
+        : undefined);
+    const finalPayoutAmount =
+      val.payoutAmount !== undefined ? val.payoutAmount : val.amountPaid;
+    return {
+      ...val,
+      executeAction: finalExecuteAction,
+      payoutAmount: finalPayoutAmount,
+    };
+  })
+  .refine(
+    (d) => VALID_ACTIONS.includes(d.executeAction as ExecuteAction),
+    (d) => ({
+      message: `executeAction/action 必填，有效值为：${VALID_ACTIONS.join("、")}；当前值=${
+        d.executeAction ?? d.action ?? "(空)"
+      }`,
+      path: ["executeAction"],
+    })
+  );
 
 export async function POST(
   req: NextRequest,
@@ -157,6 +199,12 @@ export async function POST(
       batchStatusChanged:
         Array.isArray(txResult.inventoryChanges) &&
         txResult.inventoryChanges.length > 0,
+      // 向后兼容：E2E 通过 data.after / data.finalTicket 读取最终工单
+      data: {
+        after: txResult.finalTicket,
+        finalTicket: txResult.finalTicket,
+        ticket: txResult.finalTicket,
+      },
     });
   } catch (err: any) {
     return handleRouteError(err);

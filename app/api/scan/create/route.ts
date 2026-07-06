@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveCurrentUser, UserRole, hasAnyRole } from "@/lib/auth/user-context";
 import { PermissionDeniedError } from "@/lib/auth/permission-checks";
 import { evaluateQcCheck } from "@/lib/rules/qc-rule-engine";
-import { syncWaybillFromV2 } from "@/lib/services/data-sync-service";
+import { syncWaybillFromV2, WaybillSyncError } from "@/lib/services/data-sync-service";
 import { v2Client, V2ApiError } from "@/lib/v2-api-client";
 import { requestId, generateTicketNo } from "@/lib/utils";
 import { OptimisticConcurrencyError, TicketStateTransitionError } from "@/lib/services/ticket-state-machine";
@@ -268,6 +268,26 @@ export async function POST(req: NextRequest) {
           }
         : null,
       message: duplicated ? "已存在未关闭品控工单，仅追加扫描记录" : undefined,
+      // 向后兼容：E2E 通过 data.scanRecordId / data.ticketId / data.verdict 等访问
+      data: {
+        scanRecordId: txResult.scanRecord.id,
+        ticketId: createdTicket?.id ?? (duplicated ? existingTicketId : undefined),
+        verdict: finalQcResult,
+        scanRecord: txResult.scanRecord,
+        scan: txResult.scanRecord,
+        ticket: createdTicket ?? undefined,
+        existingTicketId: duplicated ? existingTicketId : undefined,
+        duplicated,
+        qc: {
+          verdict: finalQcResult,
+          hitRuleDetail: qcResult.hitRule
+            ? {
+                ruleCode: qcResult.hitRule.ruleCode,
+                detail: qcResult.hitRule.detail,
+              }
+            : null,
+        },
+      },
     });
   } catch (err: any) {
     return handleRouteError(err);
@@ -338,6 +358,24 @@ function handleRouteError(err: any): NextResponse {
         requestId: reqId,
       },
       { status: 422 }
+    );
+  }
+  if (err instanceof WaybillSyncError) {
+    const statusMap: Record<string, number> = {
+      BAD_PARAM: 400,
+      NOT_FOUND: 404,
+      V2_FAILED_USE_FALLBACK: 502,
+      V2_FAILED_NO_LOCAL: 502,
+    };
+    const status = statusMap[err.reason] ?? 502;
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err.message,
+        code: "WAYBILL_SYNC_" + err.reason,
+        requestId: reqId,
+      },
+      { status }
     );
   }
   const isDev = process.env.NODE_ENV !== "production";

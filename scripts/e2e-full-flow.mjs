@@ -78,6 +78,7 @@ async function http(method, path, body) {
 
 function GET(p) { return http("GET", p, null); }
 function POST(p, b) { return http("POST", p, b); }
+function PATCH(p, b) { return http("PATCH", p, b); }
 
 // ---------------------------------------------------------------------------
 // 断言与结果
@@ -97,8 +98,8 @@ async function main() {
 
   // Step -1：健康检查，确认生产能响应
   {
-    const { status } = await GET("/dashboard");
-    assert(status === 200, `Step 0. 首页可达 (status=${status})`, "生产页面可访问");
+    const { status } = await GET("/tickets");
+    assert(status === 200, `Step 0. 工单列表页可达 (status=${status})`, "生产页面可访问");
   }
 
   // Step 0：准备管理员会话（切到 ADMIN，方便后续查询）
@@ -150,13 +151,16 @@ async function main() {
     // 切回管理员执行
     await POST("/api/auth/current-user", { targetUserId: "admin" });
     const { json, status } = await POST(`/api/tickets/${logisticsTicketIdL1}/execute`, {
+      executeAction: "LOGISTICS_RETURN_RESHIP",
+      payoutAmount: 140,
+      // 兼容字段（后端双向映射 action→executeAction，amountPaid→payoutAmount）
       action: "COMPENSATE_AND_RESHIP",
       amountPaid: 140,
       remark: "【E2E】货值 70% 赔付 + 重新发货（物流类，赔付方向 = PAY_TO_CUSTOMER）",
     });
     const ok = status === 200 && !!json?.ok;
     assert(ok, "Step A4. 管理员执行（理赔 + 重新发货）完成",
-      `status=${status} ok=${json?.ok} finalStatus=${json?.data?.after?.currentStatus || "?"} code=${json?.code || "-"}`);
+      `status=${status} ok=${json?.ok} finalStatus=${json?.data?.after?.currentStatus || json?.finalTicket?.currentStatus || "?"} code=${json?.code || "-"}`);
   }
 
   {
@@ -217,13 +221,16 @@ async function main() {
   {
     await POST("/api/auth/current-user", { targetUserId: "admin" });
     const { json, status } = await POST(`/api/tickets/${logisticsTicketIdL2}/execute`, {
+      executeAction: "LOGISTICS_COMPENSATE_ONLY",
+      payoutAmount: 1290,
+      // 兼容字段
       action: "COMPENSATE_CUSTOMER",
       amountPaid: 1290,
       remark: "【E2E】L2 通过后执行：按破损等级 2 赔付 50%（赔付方向 PAY_TO_CUSTOMER）",
     });
     const ok = status === 200 && !!json?.ok;
     assert(ok, "Step B4. 管理员执行完成（¥1290 赔付客户）",
-      `status=${status} ok=${json?.ok} finalStatus=${json?.data?.after?.currentStatus || "?"} code=${json?.code || "-"}`);
+      `status=${status} ok=${json?.ok} finalStatus=${json?.data?.after?.currentStatus || json?.finalTicket?.currentStatus || "?"} code=${json?.code || "-"}`);
   }
 
   // ============================================================
@@ -269,12 +276,14 @@ async function main() {
 
   {
     await POST("/api/auth/current-user", { targetUserId: "qc1" }); // 品控主管
-    const { json, status } = await POST(`/api/scan/${scanRecordIdC}/quick-release`, {
+    const { json, status } = await PATCH(`/api/scan/${scanRecordIdC}/quick-release`, {
+      note: "【E2E 快速放行】扫描判定为误判：实际为包装盒划痕，不影响货品本身（由品控主管复核）",
+      // 兼容字段（后端 reason→note 双向映射）
       reason: "【E2E 快速放行】扫描判定为误判：实际为包装盒划痕，不影响货品本身（由品控主管复核）",
     });
     const ok = status === 200 && !!json?.ok;
     assert(ok, "Step C3. QC 主管「误判快速放行」成功（仅 QC_SUPERVISOR 可操作）",
-      `status=${status} ok=${json?.ok} ticketStatusAfter=${json?.data?.ticketAfter?.currentStatus || "?"} batchStatusAfter=${json?.data?.scanAfter?.batchStatus || "?"} code=${json?.code || "-"} err=${json?.error || ""}`);
+      `status=${status} ok=${json?.ok} ticketStatusAfter=${json?.data?.ticketAfter?.currentStatus || json?.releasedTicket?.currentStatus || "?"} batchStatusAfter=${json?.data?.scanAfter?.batchStatus || json?.scanRecordUpdated?.qcBatchStatus || "?"} code=${json?.code || "-"} err=${json?.error || ""}`);
   }
 
   // ============================================================

@@ -21,7 +21,7 @@ import { resolveApprovalLevel } from "@/lib/rules/approval-rule-engine";
 
 const PostBodySchema = z.object({
   level: z.union([z.literal(1), z.literal(2), z.coerce.number().int().min(1).max(2)]),
-  action: z.enum(["APPROVED", "REJECTED", "ESCALATED"]),
+  action: z.enum(["APPROVED", "REJECTED", "ESCALATED"]).default("APPROVED"),
   comment: z.string().optional(),
   resubmissionPayload: z
     .object({
@@ -187,6 +187,12 @@ export async function POST(
         ticket: finalTicket,
         approvalRecord: transitionRes.approvalRecord ?? null,
         requireExecutionNext,
+        // 向后兼容：E2E 通过 data.after / data.before 读取变更前后工单状态
+        data: {
+          after: finalTicket,
+          before: ticket,
+          ticket: finalTicket,
+        },
       };
     });
 

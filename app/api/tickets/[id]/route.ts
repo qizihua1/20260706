@@ -153,6 +153,30 @@ export async function GET(
           : null,
       },
       v2WaybillSourceInfo,
+      // 向后兼容：E2E 通过 data.* 直接读取详情
+      data: {
+        ...ticket,
+        allScanRecords: ticket.scanRecords,
+        ticket: {
+          ...ticket,
+          allScanRecords: ticket.scanRecords,
+          waybillSnapshot: ticket.waybillSnapshot ?? null,
+        },
+        waybillSnapshot: ticket.waybillSnapshot ?? null,
+        approvalRecords: ticket.approvalRecords ?? [],
+        // compensationRecords → payoutRecords（E2E 字段名）
+        payoutRecords: Array.isArray(ticket.compensationRecords)
+          ? ticket.compensationRecords.map((c: any) => ({
+              ...c,
+              direction: c?.payoutDirection ?? c?.direction ?? "PAY_TO_CUSTOMER",
+              payoutDirection: c?.payoutDirection ?? c?.direction ?? "PAY_TO_CUSTOMER",
+              approvalRecordId: c?.approvalRecordId ?? null,
+            }))
+          : [],
+        compensationRecords: ticket.compensationRecords ?? [],
+        inventoryRecords: ticket.inventoryRecords ?? [],
+        scanRecords: ticket.scanRecords ?? [],
+      },
     });
   } catch (err: any) {
     return handleRouteError(err);

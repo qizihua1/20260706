@@ -103,8 +103,19 @@ export async function GET() {
       successRate,
       totalCalls24h: totalCalls,
       latestLogs,
+      // 向后兼容：E2E / 前端通过 recentLogs 读取
+      recentLogs: latestLogs,
       stats: { byErrorCategory: stats },
       v2ServiceStatus,
+      data: {
+        lastSyncAt: lastLog?.createdAt ?? null,
+        successRate,
+        totalCalls24h: totalCalls,
+        recentLogs: latestLogs,
+        latestLogs,
+        stats: { byErrorCategory: stats },
+        v2ServiceStatus,
+      },
     });
   } catch (err: any) {
     return handleRouteError(err);

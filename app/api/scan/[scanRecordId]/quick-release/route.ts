@@ -16,9 +16,16 @@ import {
 } from "@/lib/services/ticket-state-machine";
 import { updateBatchStatus } from "@/lib/services/scan-batch-machine";
 
-const PatchBodySchema = z.object({
-  note: z.string().min(1, "复核原因必填"),
-});
+const PatchBodySchema = z
+  .object({
+    note: z.string().min(1).optional(),
+    reason: z.string().min(1).optional(), // 向后兼容：E2E 使用 reason
+  })
+  .refine(
+    (d) => (d.note?.trim()?.length ?? 0) > 0 || (d.reason?.trim()?.length ?? 0) > 0,
+    { message: "复核原因必填（note 或 reason）", path: ["note"] }
+  )
+  .transform((d) => ({ note: d.note ?? d.reason! }));
 
 export async function PATCH(
   req: NextRequest,
@@ -126,6 +133,17 @@ export async function PATCH(
         ok: true,
         releasedTicket,
         scanRecordUpdated: finalScan ?? scanRecord,
+        // 向后兼容：E2E 通过 data.ticketAfter / data.scanAfter 读取
+        data: {
+          ticketAfter: releasedTicket,
+          ticketAfterStatus: releasedTicket?.currentStatus,
+          scanAfter: {
+            ...(finalScan ?? scanRecord ?? {}),
+            batchStatus: (finalScan ?? scanRecord as any)?.qcBatchStatus,
+          },
+          ticket: releasedTicket,
+          scanRecord: finalScan ?? scanRecord,
+        },
       };
     });
 
@@ -134,6 +152,14 @@ export async function PATCH(
   } catch (err: any) {
     return handleRouteError(err);
   }
+}
+
+// 向后兼容：E2E 脚本使用 POST 调用 quick-release
+export async function POST(
+  req: NextRequest,
+  ctx: { params: { scanRecordId: string } }
+) {
+  return PATCH(req, ctx);
 }
 
 function handleRouteError(err: any): NextResponse {
