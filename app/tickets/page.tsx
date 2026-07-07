@@ -178,8 +178,64 @@ export default function TicketsPage() {
     fetch(`/api/tickets?${params.toString()}`)
       .then((r) => r.json())
       .then((res) => {
-        if (res.ok) setData(res.data);
-        else toast.error(res.error ?? "加载失败");
+        if (res.ok) {
+          const d = (res.data ?? {}) as Partial<TicketListResp> & { items?: any[] };
+          const rawItems = Array.isArray(d.items) ? d.items : [];
+
+          const pickStr = (obj: any): string | null => {
+            if (obj == null) return null;
+            if (typeof obj === "string") return obj;
+            if (typeof obj !== "object") return String(obj);
+            return (obj.displayName as string) || (obj.username as string) || null;
+          };
+          const srcAlias: Record<string, string> = {
+            SCAN_TRIGGER: "SCAN",
+            SCAN_QR: "SCAN",
+            SCAN_BATCH: "SCAN",
+            MANUAL_REPORT: "MANUAL",
+            MANUAL_IMPORT: "MANUAL",
+          };
+
+          const items: TicketRow[] = rawItems.map((t: any) => {
+            const waybillSnap = (t.waybillSnapshot ?? {}) as any;
+            const source = String(t.source ?? "MANUAL");
+            return {
+              id: t.id,
+              ticketNo: t.ticketNo,
+              source: (srcAlias[source] ?? source) as any,
+              category: t.category as any,
+              subType: t.subType ?? "-",
+              severity: t.severity ?? "LOW",
+              currentStatus: t.currentStatus ?? "PENDING_REVIEW",
+              externalCode:
+                waybillSnap.waybillId ||
+                waybillSnap.externalCode ||
+                t.relatedWaybillId ||
+                t.externalCode ||
+                "-",
+              reportedBy: pickStr(t.reportedBy ?? t.reporter) ?? "-",
+              l1Assignee: pickStr(t.l1Assignee),
+              l2Assignee: pickStr(t.l2Assignee),
+              abnormalAmount: Number(t.abnormalAmount ?? t.amount ?? 0),
+              createdAt: t.createdAt,
+              deadlineAt: t.deadlineAt,
+            };
+          });
+
+          setData({
+            items,
+            total: Number(d.total ?? 0),
+            matched: Number(d.matched ?? 0),
+            pendingMyApproval: Number(d.pendingMyApproval ?? 0),
+            todayNew: Number(d.todayNew ?? 0),
+            avgHandleMinutes:
+              d.avgHandleMinutes == null || Number.isNaN(d.avgHandleMinutes as any)
+                ? 0
+                : Number(d.avgHandleMinutes),
+          });
+        } else {
+          toast.error(res.error ?? "加载失败");
+        }
       })
       .catch((e) => toast.error(e.message ?? "加载失败"))
       .finally(() => setLoading(false));
