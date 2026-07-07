@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
     if (q.reporterId) where.reportedByUserId = q.reporterId;
     if (q.deadlineSoon || q.urgent) {
       const soon = new Date(Date.now() + 2 * 60 * 60 * 1000);
-      where.deadlineAt = { lt: soon, not: null };
+      where.deadlineAt = { lt: soon, isSet: true };
     }
 
     if (q.keyword) {
@@ -216,15 +216,15 @@ export async function GET(req: NextRequest) {
       (prisma as any).exception_tickets.findMany({
         where: {
           currentStatus: "COMPLETED",
-          lastStatusChangedAt: { not: null },
-          createdAt: { not: null },
+          lastStatusChangedAt: { isSet: true },
+          createdAt: { isSet: true },
         },
         select: { createdAt: true, lastStatusChangedAt: true },
         take: 2000,
       }),
       (prisma as any).exception_tickets.count({
         where: {
-          deadlineAt: { lt: twoHoursLater, not: null },
+          deadlineAt: { lt: twoHoursLater, isSet: true },
           currentStatus: {
             notIn: ["COMPLETED", "CLOSED_AUTO_DISMISSED"],
           },
