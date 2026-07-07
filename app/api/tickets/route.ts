@@ -82,8 +82,30 @@ export async function GET(req: NextRequest) {
     }
 
     if (q.status && q.status.length) {
-      where.currentStatus =
-        q.status.length === 1 ? q.status[0] : { in: q.status };
+      // frontend alias names → real TicketStatus enum values (per prisma/schema.prisma L50)
+      const ENUM_ALIAS: Record<string, string> = {
+        REJECTED: "REJECTED_RESUBMIT",
+        CLOSED: "CLOSED_AUTO_DISMISSED",
+        ESCALATED: "ESCALATED_AUTO",
+        ESCALATED_MANUAL: "ESCALATED_AUTO",
+        ESCALATED_AUTO: "ESCALATED_AUTO",
+      };
+      const VALID_ENUM = new Set([
+        "PENDING_REVIEW",
+        "L1_APPROVING",
+        "L2_APPROVING",
+        "EXECUTING",
+        "REJECTED_RESUBMIT",
+        "COMPLETED",
+        "CLOSED_AUTO_DISMISSED",
+        "ESCALATED_AUTO",
+      ]);
+      const mapped = q.status
+        .map((s: string) => (ENUM_ALIAS[s] ?? s))
+        .filter((s: string) => VALID_ENUM.has(s));
+      if (mapped.length) {
+        where.currentStatus = mapped.length === 1 ? mapped[0] : { in: mapped };
+      }
     }
     if (q.category) where.category = q.category;
     if (q.subType) where.subType = q.subType;
@@ -148,7 +170,6 @@ export async function GET(req: NextRequest) {
       "L2_APPROVING",
       "EXECUTING",
       "ESCALATED_AUTO",
-      "ESCALATED_MANUAL",
     ];
 
     const [tickets, matched, groupCount] = await Promise.all([
