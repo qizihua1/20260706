@@ -66,7 +66,7 @@ export async function GET() {
       }),
       (prisma as any).exception_tickets.count({
         where: {
-          deadlineAt: { lt: today, isSet: true },
+          deadlineAt: { lt: today, gt: new Date(0) },
           currentStatus: {
             notIn: ["COMPLETED", "CLOSED_AUTO_DISMISSED"],
           },
@@ -74,7 +74,7 @@ export async function GET() {
       }),
       (prisma as any).exception_tickets.count({
         where: {
-          deadlineAt: { lt: twoHoursLater, isSet: true },
+          deadlineAt: { lt: twoHoursLater, gt: new Date(0) },
           currentStatus: {
             notIn: ["COMPLETED", "CLOSED_AUTO_DISMISSED"],
           },
@@ -111,7 +111,7 @@ export async function GET() {
       (prisma as any).exception_tickets.findMany({
         where: {
           currentStatus: "COMPLETED",
-          lastStatusChangedAt: { gte: startOf7DaysAgo, isSet: true },
+          lastStatusChangedAt: { gte: startOf7DaysAgo },
         },
         select: { lastStatusChangedAt: true },
       }),
@@ -129,7 +129,7 @@ export async function GET() {
       }),
       (prisma as any).exception_tickets.findMany({
         where: {
-          deadlineAt: { lt: twoHoursLater, isSet: true },
+          deadlineAt: { lt: twoHoursLater, gt: new Date(0) },
           currentStatus: {
             notIn: ["COMPLETED", "CLOSED_AUTO_DISMISSED"],
           },
@@ -141,7 +141,10 @@ export async function GET() {
         },
       }),
       (prisma as any).exception_tickets.findMany({
-        where: { currentStatus: "COMPLETED", lastStatusChangedAt: { isSet: true } },
+        where: {
+          currentStatus: "COMPLETED",
+          lastStatusChangedAt: { gte: new Date(0) },
+        },
         orderBy: [{ lastStatusChangedAt: "desc" }],
         take: 10,
         include: {
