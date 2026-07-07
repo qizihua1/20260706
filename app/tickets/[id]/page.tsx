@@ -125,7 +125,34 @@ export default function TicketDetailPage() {
       const res = await fetch(`/api/tickets/${ticketId}`);
       const json = await res.json();
       if (json.ok) {
-        setTicket(json.data);
+        const ws = json.data?.waybillSnapshot ?? null;
+        const v2 = json.v2WaybillSourceInfo ?? null;
+        const mapItems = (raw: any) =>
+          Array.isArray(raw)
+            ? raw.map((it: any) => ({
+                ...it,
+                name: it?.name ?? it?.skuName ?? it?.productName ?? it?.title ?? "-",
+                sku: it?.sku ?? it?.skuCode ?? it?.skuId ?? "-",
+                qty: Number(it?.qty ?? it?.quantity ?? it?.count ?? 0),
+                price: Number(
+                  it?.price ?? it?.unitPrice ?? it?.priceCents ?? it?.amount ?? 0
+                ),
+              }))
+            : [];
+        const mergedWaybill = ws
+          ? {
+              ...ws,
+              syncedAt: v2?.syncedAt ?? ws.syncedAt,
+              syncedFromV2: v2?.realtime === true || (v2?.syncedFromV2 ?? false),
+              diffs: v2?.diffs ?? [],
+              totalAmount: Number(ws.totalAmount ?? 0),
+              receiverName: ws.receiverName ?? ws.recipientName ?? ws.receiver_name ?? "-",
+              receiverPhone: ws.receiverPhone ?? ws.recipientPhone ?? ws.mobile ?? "-",
+              receiverAddress: ws.receiverAddress ?? ws.recipientAddress ?? ws.address ?? "-",
+              itemsSnapshot: mapItems(ws.itemsSnapshot),
+            }
+          : null;
+        setTicket({ ...json.data, waybill: mergedWaybill, waybillSnapshot: ws });
         if (payoutAmount === 0 && json.data?.abnormalAmount) {
           setPayoutAmount(json.data.abnormalAmount);
         }
@@ -160,7 +187,41 @@ export default function TicketDetailPage() {
       const json = await res.json();
       if (json.ok) {
         toast.success("运单信息已刷新");
-        setTicket((t) => t ? ({ ...t, waybill: json.waybillSnapshot }) : t);
+        const refreshedSnapshot = json.waybillSnapshot;
+        const mapItems = (raw: any) =>
+          Array.isArray(raw)
+            ? raw.map((it: any) => ({
+                ...it,
+                name: it?.name ?? it?.skuName ?? it?.productName ?? it?.title ?? "-",
+                sku: it?.sku ?? it?.skuCode ?? it?.skuId ?? "-",
+                qty: Number(it?.qty ?? it?.quantity ?? it?.count ?? 0),
+                price: Number(
+                  it?.price ?? it?.unitPrice ?? it?.priceCents ?? it?.amount ?? 0
+                ),
+              }))
+            : [];
+        const merged = refreshedSnapshot
+          ? {
+              ...refreshedSnapshot,
+              syncedAt: refreshedSnapshot.syncedAt,
+              syncedFromV2: json.source === "v2-realtime",
+              diffs: [],
+              totalAmount: Number(refreshedSnapshot.totalAmount ?? 0),
+              receiverName: refreshedSnapshot.receiverName ?? refreshedSnapshot.recipientName ?? refreshedSnapshot.receiver_name ?? "-",
+              receiverPhone: refreshedSnapshot.receiverPhone ?? refreshedSnapshot.recipientPhone ?? refreshedSnapshot.mobile ?? "-",
+              receiverAddress: refreshedSnapshot.receiverAddress ?? refreshedSnapshot.recipientAddress ?? refreshedSnapshot.address ?? "-",
+              itemsSnapshot: mapItems(refreshedSnapshot.itemsSnapshot),
+            }
+          : null;
+        setTicket((t) =>
+          t
+            ? {
+                ...t,
+                waybill: merged,
+                waybillSnapshot: refreshedSnapshot ?? t.waybillSnapshot ?? null,
+              }
+            : t
+        );
       } else toast.error(json.error ?? "同步失败");
     } catch (e: any) {
       toast.error(e.message ?? "同步失败");
