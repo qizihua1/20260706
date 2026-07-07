@@ -60,7 +60,6 @@ export async function GET() {
               "L2_APPROVING",
               "EXECUTING",
               "ESCALATED_AUTO",
-              "ESCALATED_MANUAL",
             ],
           },
         },
