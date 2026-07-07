@@ -123,6 +123,39 @@ export async function POST(
 
       let transitionRes: any;
       try {
+        // 自动把 PENDING_REVIEW / REJECTED_RESUBMIT 等前置状态推到对应的 Lx_APPROVING，
+        // 避免因未跑过分配定时任务导致人工点击审批直接 STATE_TRANSITION_ERROR。
+        const cur: any = (ticket.currentStatus as string) || "PENDING_REVIEW";
+        const reqLevel: 1 | 2 = Number(ticket.approvalLevelRequired ?? level) === 2 ? 2 : 1;
+        if (cur === "PENDING_REVIEW" || cur === "REJECTED_RESUBMIT") {
+          // 若从 REJECTED_RESUBMIT 来，先触发一次 RESUBMIT 让其回到 PENDING_REVIEW
+          if (cur === "REJECTED_RESUBMIT") {
+            try {
+              await transitionTicket(tx, ticketId, {
+                kind: "RESUBMIT" as any,
+                actorUserId: caller.id,
+                level,
+                reason: input.comment,
+                comment: input.comment,
+              });
+            } catch (_e: any) {
+              // 容忍状态机小偏差
+            }
+          }
+          const assignKind: any = reqLevel === 2 ? "L2_ASSIGN" : "L1_ASSIGN";
+          try {
+            await transitionTicket(tx, ticketId, {
+              kind: assignKind,
+              actorUserId: caller.id,
+              level: reqLevel,
+              reason: input.comment,
+              comment: input.comment,
+            });
+          } catch (_e: any) {
+            // 若因版本、并发、或已有下游状态导致 assign 失败，忽略继续尝试批准本身，
+            // 后续批准事件命中正确的 from 状态则可推进，否则会正常抛 STATE_TRANSITION_ERROR。
+          }
+        }
         transitionRes = await transitionTicket(tx, ticketId, {
           kind,
           actorUserId: caller.id,
