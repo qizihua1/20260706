@@ -106,24 +106,77 @@ export async function POST(req: NextRequest) {
     }
 
     // ---------- 第二步：按外键顺序删除（事务内） ----------
+    // 先一次性查出所有关联记录的主键，避免外键顺序冲突
+    const relatedRows = await prisma.$transaction(async (tx0: any) => {
+      const approvals = await tx0.approval_records.findMany({
+        where: { ticketId: { in: deleteIds } },
+        select: { id: true },
+      });
+      const approvalIds = approvals.map((r: any) => r.id);
+
+      // inventory_records 有两个 FK：ticketId + approvalRecordId → 两边都要覆盖
+      const invRows = await tx0.inventory_records.findMany({
+        where: {
+          OR: [
+            { ticketId: { in: deleteIds } },
+            approvalIds.length ? { approvalRecordId: { in: approvalIds } } : {},
+          ].filter((c) => Object.keys(c).length > 0) as any,
+        },
+        select: { id: true },
+      });
+
+      // compensation_records 有 ticketId FK 以及 approvalRecordId UNIQUE FK
+      const cmpRows = await tx0.compensation_records.findMany({
+        where: {
+          OR: [
+            { ticketId: { in: deleteIds } },
+            approvalIds.length ? { approvalRecordId: { in: approvalIds } } : {},
+          ].filter((c) => Object.keys(c).length > 0) as any,
+        },
+        select: { id: true },
+      });
+
+      return {
+        approvalIds,
+        inventoryIds: invRows.map((r: any) => r.id),
+        compensationIds: cmpRows.map((r: any) => r.id),
+      };
+    });
+
     const txResult = await prisma.$transaction(async (tx: any) => {
-      // 1. inventory_records（有 ticketId FK + approvalRecordId FK → 先清）
-      const inv = await tx.inventory_records.deleteMany({
-        where: { ticketId: { in: deleteIds } },
-      });
-      summary.steps.inventoryRecordsDeleted = inv.count;
+      const approvalIds = relatedRows.approvalIds;
+      const inventoryIds = relatedRows.inventoryIds;
+      const compensationIds = relatedRows.compensationIds;
 
-      // 2. compensation_records（有 ticketId FK + approvalRecordId UNIQUE FK → 次清）
-      const cmp = await tx.compensation_records.deleteMany({
-        where: { ticketId: { in: deleteIds } },
-      });
-      summary.steps.compensationRecordsDeleted = cmp.count;
+      // 1. inventory_records（先删，因为它引用 approvalRecordId + ticketId 两个父表）
+      let invCount = 0;
+      if (inventoryIds.length) {
+        const inv = await tx.inventory_records.deleteMany({
+          where: { id: { in: inventoryIds } },
+        });
+        invCount = inv.count;
+      }
+      summary.steps.inventoryRecordsDeleted = invCount;
 
-      // 3. approval_records（有 ticketId FK → 再清）
-      const apr = await tx.approval_records.deleteMany({
-        where: { ticketId: { in: deleteIds } },
-      });
-      summary.steps.approvalRecordsDeleted = apr.count;
+      // 2. compensation_records（次删，因为它引用 approvalRecordId UNIQUE FK）
+      let cmpCount = 0;
+      if (compensationIds.length) {
+        const cmp = await tx.compensation_records.deleteMany({
+          where: { id: { in: compensationIds } },
+        });
+        cmpCount = cmp.count;
+      }
+      summary.steps.compensationRecordsDeleted = cmpCount;
+
+      // 3. approval_records（再删，现在没有 inventory/compensation 引用它了）
+      let aprCount = 0;
+      if (approvalIds.length) {
+        const apr = await tx.approval_records.deleteMany({
+          where: { id: { in: approvalIds } },
+        });
+        aprCount = apr.count;
+      }
+      summary.steps.approvalRecordsDeleted = aprCount;
 
       // 4. scan_records 的 ticketId 断开关联（保留 scan 本身，因为它还引用 waybill_snapshot）
       const scn = await tx.scan_records.updateMany({
