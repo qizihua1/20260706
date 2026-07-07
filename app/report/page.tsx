@@ -28,7 +28,7 @@ import { toast } from "sonner";
 import { formatMoney, cn } from "@/lib/utils";
 
 const SUB_TYPES = [
-  { key: "丢失", label: "丢件", icon: PackageOpen, color: "text-red-600 bg-red-50 border-red-200 hover:border-red-300" },
+  { key: "丢件", label: "丢件", icon: PackageOpen, color: "text-red-600 bg-red-50 border-red-200 hover:border-red-300" },
   { key: "破损", label: "破损", icon: PackageSearch, color: "text-orange-600 bg-orange-50 border-orange-200 hover:border-orange-300" },
   { key: "拒收", label: "拒收", icon: Ban, color: "text-yellow-600 bg-yellow-50 border-yellow-200 hover:border-yellow-300" },
   { key: "超时未签收", label: "超时未签收", icon: Clock, color: "text-purple-600 bg-purple-50 border-purple-200 hover:border-purple-300" },
@@ -126,13 +126,13 @@ export default function ReportPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          externalCode: externalCode.trim(),
+          waybillExternalCode: externalCode.trim(),
           category: form.category,
           subType: form.subType,
           severity: form.severity,
           description: form.description.trim(),
           evidenceUrls: urls,
-          abnormalAmount: Number(form.abnormalAmount) || 0,
+          amount: Number(form.abnormalAmount) || 0,
         }),
       });
       const json = await res.json();
