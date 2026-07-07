@@ -58,6 +58,7 @@ interface TicketDetail {
   evidenceUrls: string[];
   // Waybill
   waybill?: {
+    waybillId?: string | null;
     externalCode: string;
     receiverName: string;
     receiverPhone: string;
@@ -146,15 +147,20 @@ export default function TicketDetailPage() {
     if (!ticket) return;
     setSyncing(true);
     try {
+      const externalCode = ticket.externalCode || ticket.waybill?.externalCode;
+      const waybillId = ticket.waybill?.waybillId;
+      const body: any = { force: true };
+      if (externalCode) body.externalCode = externalCode;
+      if (waybillId) body.waybillId = waybillId;
       const res = await fetch("/api/sync/waybill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ externalCode: ticket.externalCode, force: true }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (json.ok) {
         toast.success("运单信息已刷新");
-        setTicket((t) => t ? ({ ...t, waybill: json.data }) : t);
+        setTicket((t) => t ? ({ ...t, waybill: json.waybillSnapshot }) : t);
       } else toast.error(json.error ?? "同步失败");
     } catch (e: any) {
       toast.error(e.message ?? "同步失败");
