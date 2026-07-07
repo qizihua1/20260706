@@ -276,10 +276,49 @@ export async function GET(req: NextRequest) {
       totalCountsByStatus[c.currentStatus] = c._count as number;
     }
 
+    // normalize items → flat TicketRow (matching app/tickets/page.tsx TicketRow interface)
+    const items = (tickets ?? []).map((t: any) => {
+      const pickUserStr = (u: any) =>
+        u == null
+          ? null
+          : typeof u === "string"
+          ? u
+          : u.displayName || u.username || null;
+      const src = String(t.source ?? "MANUAL");
+      const srcAlias: Record<string, string> = {
+        SCAN_TRIGGER: "SCAN",
+        SCAN_QR: "SCAN",
+        SCAN_BATCH: "SCAN",
+        MANUAL_REPORT: "MANUAL",
+        MANUAL_IMPORT: "MANUAL",
+      };
+      return {
+        id: t.id,
+        ticketNo: t.ticketNo,
+        source: (srcAlias[src] ?? src) as any,
+        category: t.category,
+        subType: t.subType,
+        severity: t.severity,
+        currentStatus: t.currentStatus,
+        externalCode:
+          (t.waybillSnapshot as any)?.waybillId ||
+          (t.waybillSnapshot as any)?.externalCode ||
+          t.relatedWaybillId ||
+          t.externalCode ||
+          "-",
+        reportedBy: pickUserStr(t.reporter) || "-",
+        l1Assignee: pickUserStr(t.l1Assignee),
+        l2Assignee: pickUserStr(t.l2Assignee),
+        abnormalAmount: Number(t.amount ?? t.abnormalAmount ?? 0),
+        createdAt: t.createdAt,
+        deadlineAt: t.deadlineAt,
+      };
+    });
+
     return NextResponse.json({
       ok: true,
       data: {
-        items: tickets,
+        items,
         total: grandTotal,
         matched,
         pendingMyApproval,
