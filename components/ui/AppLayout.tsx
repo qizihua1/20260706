@@ -38,12 +38,43 @@ export function AppLayout({ children }: AppLayoutProps) {
       .catch(() => {});
   }, []);
 
-  const handleSearchSubmit = () => {
+  const handleSearchSubmit = async () => {
     const q = searchKw.trim();
     if (!q) {
       toast.info("请输入要搜索的工单号 / 运单号");
       return;
     }
+    // 快捷跳转：直接输入工单 ID（cmr 开头）跳详情
+    if (/^cmr[a-z0-9_-]{14,}$/i.test(q)) {
+      router.push(`/tickets/${q}`);
+      toast.success(`已跳转到工单详情：「${q}」`);
+      return;
+    }
+    // 快捷跳转：输入工单编号（TYYYYMMDD-NNNN 格式）→ 精确匹配后跳详情
+    if (/^T\d{8}[- ]?\d{3,6}$/.test(q)) {
+      try {
+        const res = await fetch(`/api/tickets?keyword=${encodeURIComponent(q)}&page=1&pageSize=5`, {
+          credentials: "same-origin",
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const list: any[] = (json && (json.tickets || json.data || json.items || json)) || [];
+          const exact = list.find(
+            (t: any) =>
+              (t.ticketNo || "").replace(/\s/g, "").toUpperCase() ===
+              q.replace(/\s/g, "").toUpperCase()
+          );
+          if (exact && exact.id) {
+            router.push(`/tickets/${exact.id}`);
+            toast.success(`已精确定位：工单「${exact.ticketNo || q}」`);
+            return;
+          }
+        }
+      } catch (e: any) {
+        // 降级：走列表搜索
+      }
+    }
+    // 默认：按关键字跳工单列表搜索
     router.push(`/tickets?keyword=${encodeURIComponent(q)}`);
     toast.success(`已跳转到工单搜索：「${q}」`);
   };
