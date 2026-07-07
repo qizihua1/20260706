@@ -32,18 +32,23 @@ export async function GET() {
       today.getDate() - 6
     );
 
+    const twoHoursLater = new Date(Date.now() + 2 * 60 * 60 * 1000);
     const [
       totalTickets,
       pendingTickets,
       overdueTickets,
+      urgentTickets,
       completedToday,
       compCustomer,
       compSupplier,
       qcHeldBatches,
       qcPassHeldStats,
       trend7days,
+      trend7daysCompleted,
       categoryDistribution,
       topExceptionSubtypes,
+      urgentTop10Raw,
+      recentCompletedRaw,
     ] = await Promise.all([
       (prisma as any).exception_tickets.count(),
       (prisma as any).exception_tickets.count({
@@ -55,6 +60,7 @@ export async function GET() {
               "L2_APPROVING",
               "EXECUTING",
               "ESCALATED_AUTO",
+              "ESCALATED_MANUAL",
             ],
           },
         },
@@ -62,6 +68,14 @@ export async function GET() {
       (prisma as any).exception_tickets.count({
         where: {
           deadlineAt: { lt: today, not: null },
+          currentStatus: {
+            notIn: ["COMPLETED", "CLOSED_AUTO_DISMISSED"],
+          },
+        },
+      }),
+      (prisma as any).exception_tickets.count({
+        where: {
+          deadlineAt: { lt: twoHoursLater, not: null },
           currentStatus: {
             notIn: ["COMPLETED", "CLOSED_AUTO_DISMISSED"],
           },
@@ -95,6 +109,13 @@ export async function GET() {
         where: { createdAt: { gte: startOf7DaysAgo } },
         select: { createdAt: true },
       }),
+      (prisma as any).exception_tickets.findMany({
+        where: {
+          currentStatus: "COMPLETED",
+          lastStatusChangedAt: { gte: startOf7DaysAgo, not: null },
+        },
+        select: { lastStatusChangedAt: true },
+      }),
       (prisma as any).exception_tickets.groupBy({
         by: ["category"],
         where: { createdAt: { gte: startOf7DaysAgo } },
@@ -106,6 +127,27 @@ export async function GET() {
         _count: true,
         orderBy: { _count: { subType: "desc" } },
         take: 10,
+      }),
+      (prisma as any).exception_tickets.findMany({
+        where: {
+          deadlineAt: { lt: twoHoursLater, not: null },
+          currentStatus: {
+            notIn: ["COMPLETED", "CLOSED_AUTO_DISMISSED"],
+          },
+        },
+        orderBy: [{ deadlineAt: "asc" }],
+        take: 10,
+        include: {
+          reporter: { select: { displayName: true, username: true } },
+        },
+      }),
+      (prisma as any).exception_tickets.findMany({
+        where: { currentStatus: "COMPLETED", lastStatusChangedAt: { not: null } },
+        orderBy: [{ lastStatusChangedAt: "desc" }],
+        take: 10,
+        include: {
+          compensationRecords: { select: { amount: true, direction: true } },
+        },
       }),
     ]);
 
@@ -119,17 +161,28 @@ export async function GET() {
     const qcPassRate = qcTotal > 0 ? Number(((qcPassCount / qcTotal) * 100).toFixed(2)) : 100;
 
     const dayMap: Record<string, number> = {};
+    const completedDayMap: Record<string, number> = {};
     for (let i = 0; i < 7; i++) {
       const d = new Date(startOf7DaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       dayMap[key] = 0;
+      completedDayMap[key] = 0;
     }
     for (const row of trend7days) {
       const d = new Date(row.createdAt);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       if (key in dayMap) dayMap[key]++;
     }
-    const trend7daysArr = Object.entries(dayMap).map(([date, count]) => ({ date, count }));
+    for (const row of trend7daysCompleted) {
+      const d = new Date(row.lastStatusChangedAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (key in completedDayMap) completedDayMap[key]++;
+    }
+    const trend7daysArr = Object.entries(dayMap).map(([date, count]) => ({
+      date,
+      count,
+      completed: completedDayMap[date] ?? 0,
+    }));
 
     const catDistMap: Record<string, number> = { LOGISTICS: 0, QC: 0 };
     for (const row of categoryDistribution) {
@@ -144,25 +197,61 @@ export async function GET() {
       count: row._count,
     }));
 
+    const urgentTop10 = (urgentTop10Raw ?? []).map((t: any) => ({
+      id: t.id,
+      ticketNo: t.ticketNo,
+      subType: t.subType,
+      severity: t.severity,
+      deadlineAt: t.deadlineAt,
+      reportedBy:
+        t.reporter?.displayName || t.reporter?.username || t.reportedBy || "-",
+    }));
+
+    const recentCompleted = (recentCompletedRaw ?? []).map((t: any) => {
+      let amount = 0;
+      if (Array.isArray(t.compensationRecords)) {
+        for (const c of t.compensationRecords) {
+          const dir = String(c?.direction ?? "");
+          const isPayout =
+            dir.startsWith("PAY") ||
+            dir.includes("CUSTOMER") ||
+            dir.includes("赔付") ||
+            dir.includes("客户");
+          if (isPayout) amount += Number(c?.amount ?? 0);
+        }
+      }
+      return {
+        id: t.id,
+        ticketNo: t.ticketNo,
+        subType: t.subType,
+        completedAt: t.lastStatusChangedAt,
+        amount,
+      };
+    });
+
     return NextResponse.json({
       ok: true,
-      stats: {
+      data: {
         totalTickets,
         pendingTickets,
-        overdueTickets,
-        completedToday,
-        compensationTotalCustomerPaid: Number(
+        urgentTickets,
+        todayCompleted: completedToday,
+        customerPayoutTotal: Number(
           compCustomer?._sum?.amount ?? 0
         ),
-        compensationTotalSupplierRecover: Number(
+        vendorRecoveryTotal: Number(
           compSupplier?._sum?.amount ?? 0
         ),
         qcHeldBatches: qcHeldBatches.length,
         qcPassRate,
+        overdueTickets,
+        trend7Days: trend7daysArr,
+        categoryDistribution: categoryDistributionArr,
+        topExceptionSubtypes: topExceptionSubtypesArr,
+        topSubTypes: topExceptionSubtypesArr,
+        urgentTop10,
+        recentCompleted,
       },
-      trend7days: trend7daysArr,
-      categoryDistribution: categoryDistributionArr,
-      topExceptionSubtypes: topExceptionSubtypesArr,
     });
   } catch (err: any) {
     return handleRouteError(err);
