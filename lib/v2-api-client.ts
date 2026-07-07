@@ -93,7 +93,8 @@ class V2ApiClient {
   private apiKey: string;
 
   constructor() {
-    this.baseUrl = process.env.V2_BASE_URL || DEFAULT_BASE_URL;
+    // 强制使用 V2 已知正确生产地址（Vercel env 可能配置错误 → 404），忽略 V2_BASE_URL env 覆盖
+    this.baseUrl = DEFAULT_BASE_URL;
     this.apiKey = process.env.V2_API_KEY || "";
   }
 
