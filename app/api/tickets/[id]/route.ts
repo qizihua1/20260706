@@ -165,6 +165,8 @@ export async function GET(
         waybillSnapshot: ticket.waybillSnapshot ?? null,
         approvalRecords: ticket.approvalRecords ?? [],
         // compensationRecords → payoutRecords（E2E 字段名）
+        // 同时将 prisma 原生字段 direction(CompensationDirection 枚举) + Decimal amount
+        //   映射为前端 TicketDetail 期望的 {type, target, amount(number)}，避免前端 c.type undefined
         payoutRecords: Array.isArray(ticket.compensationRecords)
           ? ticket.compensationRecords.map((c: any) => ({
               ...c,
@@ -173,7 +175,31 @@ export async function GET(
               approvalRecordId: c?.approvalRecordId ?? null,
             }))
           : [],
-        compensationRecords: ticket.compensationRecords ?? [],
+        compensationRecords: Array.isArray(ticket.compensationRecords)
+          ? ticket.compensationRecords.map((c: any) => {
+              const dir =
+                (c?.payoutDirection as string) ??
+                (c?.direction as string) ??
+                "PAY_TO_CUSTOMER";
+              const isVendor = dir.startsWith("RECOVER") || dir.includes("SUPPLIER") || dir.includes("VENDOR") || dir.includes("追偿");
+              const typeStr = isVendor
+                ? `RECOVER_VENDOR 供应商追偿 ${dir}`
+                : `PAY_CUSTOMER 赔付客户 ${dir}`;
+              return {
+                id: c?.id ?? String(c?.approvalRecordId ?? Math.random()),
+                type: typeStr,
+                direction: dir,
+                amount: Number(c?.amount ?? 0),
+                target: isVendor ? "供应商追偿" : "客户赔付",
+                status: c?.paymentStatus ?? null,
+                paymentMethod: c?.paymentMethod ?? null,
+                voucherNo: c?.voucherNo ?? null,
+                approvalRecordId: c?.approvalRecordId ?? null,
+                remark: c?.remark ?? null,
+                createdAt: c?.createdAt ?? new Date(),
+              };
+            })
+          : [],
         inventoryRecords: ticket.inventoryRecords ?? [],
         scanRecords: ticket.scanRecords ?? [],
       },

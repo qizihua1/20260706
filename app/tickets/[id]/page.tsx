@@ -623,8 +623,11 @@ export default function TicketDetailPage() {
                 {ticket.compensationRecords?.map(c => (
                   <div key={c.id} className="p-2.5 rounded-lg bg-red-50 border border-red-100 flex items-start justify-between gap-2">
                     <div>
-                      <div className="font-semibold text-red-700">{c.type}</div>
-                      <div className="text-gray-500 mt-0.5">{c.target} · {formatDate(c.createdAt, false)}</div>
+                      <div className="font-semibold text-red-700">
+                        {String(c.type || c.direction || (c.amount && Number(c.amount) < 0 ? "供应商追偿" : "赔付客户"))}
+                      </div>
+                      <div className="text-gray-500 mt-0.5">{c.target || "-"} · {formatDate(c.createdAt, false)}</div>
+                      {c.remark ? <div className="text-gray-400 mt-0.5 text-[11px]">备注：{c.remark}</div> : null}
                     </div>
                     <div className="font-mono font-bold text-red-700">{formatMoney(c.amount)}</div>
                   </div>
@@ -651,7 +654,9 @@ export default function TicketDetailPage() {
                 <ShieldAlert className="w-4 h-4 text-teal-600" />
                 <h3 className="font-bold text-gray-900 text-sm">关联扫描记录</h3>
               </div>
-              {!ticket.scanRecords || ticket.scanRecords.length ? (
+              {!ticket.scanRecords || ticket.scanRecords.length === 0 ? (
+                <div className="py-6 text-center text-xs text-gray-400">无关联扫描记录</div>
+              ) : (
                 <div className="space-y-2 text-xs">
                   {ticket.scanRecords?.map(s => (
                   <div key={s.id} className="p-3 rounded-lg border border-gray-100 bg-gray-50">
@@ -672,10 +677,8 @@ export default function TicketDetailPage() {
                       {s.lockedUntil && <span>解锁时间：{formatDate(s.lockedUntil, false)}</span>}
                     </div>
                   </div>
-                )) ?? null}
+                ))}
                 </div>
-              ) : (
-                <div className="py-6 text-center text-xs text-gray-400">无关联扫描记录</div>
               )}
             </div>
           )}
@@ -691,13 +694,23 @@ export default function TicketDetailPage() {
               <div>
                 <div className="text-gray-400 mb-0.5">客户赔付</div>
                 <div className="font-semibold text-gray-800">
-                  {formatMoney(ticket.compensationRecords?.filter(c => c.type.includes("CUSTOMER") || c.type.includes("赔付") || c.type === "PAY_CUSTOMER").reduce((s, c) => s + c.amount, 0) ?? 0)}
+                  {formatMoney(
+                    (ticket.compensationRecords ?? []).filter(c => {
+                      const key = String(c?.type || c?.direction || "");
+                      return key.includes("CUSTOMER") || key.includes("赔付") || key.includes("PAY") || key.startsWith("PAY_TO");
+                    }).reduce((s: number, c: any) => s + Number(c?.amount ?? 0), 0)
+                  )}
                 </div>
               </div>
               <div>
                 <div className="text-gray-400 mb-0.5">供应商追偿</div>
                 <div className="font-semibold text-gray-800">
-                  {formatMoney(ticket.compensationRecords?.filter(c => c.type.includes("VENDOR") || c.type.includes("追偿") || c.type === "RECOVER_VENDOR").reduce((s, c) => s + c.amount, 0) ?? 0)}
+                  {formatMoney(
+                    (ticket.compensationRecords ?? []).filter(c => {
+                      const key = String(c?.type || c?.direction || "");
+                      return key.includes("VENDOR") || key.includes("追偿") || key.includes("RECOVER") || key.includes("SUPPLIER");
+                    }).reduce((s: number, c: any) => s + Number(c?.amount ?? 0), 0)
+                  )}
                 </div>
               </div>
             </div>
