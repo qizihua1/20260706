@@ -14,7 +14,12 @@ import {
 const QuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  status: z.string().optional(),
+  status: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v ? v.split(",").map((s) => s.trim()).filter(Boolean) : undefined
+    ),
   category: z.string().optional(),
   subType: z.string().optional(),
   severity: z.string().optional(),
@@ -23,6 +28,10 @@ const QuerySchema = z.object({
   assigneeId: z.string().optional(),
   reporterId: z.string().optional(),
   deadlineSoon: z
+    .string()
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
+  urgent: z
     .string()
     .optional()
     .transform((v) => v === "true" || v === "1"),
@@ -72,7 +81,10 @@ export async function GET(req: NextRequest) {
       throw new PermissionDeniedError("当前用户无工单列表访问权限");
     }
 
-    if (q.status) where.currentStatus = q.status;
+    if (q.status && q.status.length) {
+      where.currentStatus =
+        q.status.length === 1 ? q.status[0] : { in: q.status };
+    }
     if (q.category) where.category = q.category;
     if (q.subType) where.subType = q.subType;
     if (q.severity) where.severity = q.severity;
@@ -85,7 +97,7 @@ export async function GET(req: NextRequest) {
       ];
     }
     if (q.reporterId) where.reportedByUserId = q.reporterId;
-    if (q.deadlineSoon) {
+    if (q.deadlineSoon || q.urgent) {
       const soon = new Date(Date.now() + 2 * 60 * 60 * 1000);
       where.deadlineAt = { lt: soon, not: null };
     }
@@ -126,8 +138,20 @@ export async function GET(req: NextRequest) {
     }
 
     const skip = (q.page - 1) * q.pageSize;
+    const _today = new Date();
+    const startOfDay = new Date(_today.getFullYear(), _today.getMonth(), _today.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+    const twoHoursLater = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const PENDING_STATUSES = [
+      "PENDING_REVIEW",
+      "L1_APPROVING",
+      "L2_APPROVING",
+      "EXECUTING",
+      "ESCALATED_AUTO",
+      "ESCALATED_MANUAL",
+    ];
 
-    const [tickets, total] = await Promise.all([
+    const [tickets, matched, groupCount] = await Promise.all([
       (prisma as any).exception_tickets.findMany({
         where,
         include: {
@@ -156,34 +180,91 @@ export async function GET(req: NextRequest) {
         take: q.pageSize,
       }),
       (prisma as any).exception_tickets.count({ where }),
+      (prisma as any).exception_tickets.groupBy({
+        by: ["currentStatus"],
+        _count: true,
+      }),
     ]);
 
-    const allCountPromise = (prisma as any).exception_tickets.groupBy({
-      by: ["currentStatus"],
-      _count: true,
-    });
-    const overdueSoonCount = await (prisma as any).exception_tickets.count({
-      where: {
-        deadlineAt: {
-          lt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-          not: null,
+    // 构造"待我审批"过滤条件
+    let pendingMyApproval = 0;
+    if (isAdmin) {
+      pendingMyApproval = groupCount.reduce((s: number, r: any) =>
+        s + (PENDING_STATUSES.includes(r.currentStatus) ? (r._count as number) : 0), 0);
+    } else if (isApproverL1 || isApproverL2) {
+      const myWhere: any = { OR: [] as any[] };
+      if (isApproverL1) {
+        myWhere.OR.push({
+          l1AssigneeId: caller.id,
+          currentStatus: { in: ["PENDING_REVIEW", "L1_APPROVING"] },
+        });
+      }
+      if (isApproverL2) {
+        myWhere.OR.push({
+          l2AssigneeId: caller.id,
+          currentStatus: { in: ["L2_APPROVING"] },
+        });
+      }
+      pendingMyApproval = await (prisma as any).exception_tickets.count({ where: myWhere });
+    }
+
+    const [grandTotal, todayNew, completedForAvg, overdueSoonCount] = await Promise.all([
+      (prisma as any).exception_tickets.count(),
+      (prisma as any).exception_tickets.count({
+        where: { createdAt: { gte: startOfDay, lt: endOfDay } },
+      }),
+      (prisma as any).exception_tickets.findMany({
+        where: {
+          currentStatus: "COMPLETED",
+          lastStatusChangedAt: { not: null },
+          createdAt: { not: null },
         },
-        currentStatus: {
-          notIn: ["COMPLETED", "CLOSED_AUTO_DISMISSED"],
+        select: { createdAt: true, lastStatusChangedAt: true },
+        take: 2000,
+      }),
+      (prisma as any).exception_tickets.count({
+        where: {
+          deadlineAt: { lt: twoHoursLater, not: null },
+          currentStatus: {
+            notIn: ["COMPLETED", "CLOSED_AUTO_DISMISSED"],
+          },
         },
-      },
-    });
-    const allCount = await allCountPromise;
+      }),
+    ]);
+
+    // 平均处理时长（分钟）
+    let avgHandleMinutes: number | undefined;
+    if (completedForAvg && completedForAvg.length) {
+      let sum = 0;
+      let n = 0;
+      for (const r of completedForAvg) {
+        const dur =
+          (new Date(r.lastStatusChangedAt).getTime() -
+            new Date(r.createdAt).getTime()) /
+          60000;
+        if (Number.isFinite(dur) && dur >= 0) {
+          sum += dur;
+          n++;
+        }
+      }
+      if (n > 0) avgHandleMinutes = Math.round((sum / n) * 10) / 10;
+    }
 
     const totalCountsByStatus: Record<string, number> = {};
-    for (const c of allCount) {
-      totalCountsByStatus[c.currentStatus] = c._count;
+    for (const c of groupCount) {
+      totalCountsByStatus[c.currentStatus] = c._count as number;
     }
 
     return NextResponse.json({
       ok: true,
-      data: tickets,
-      total,
+      data: {
+        items: tickets,
+        total: grandTotal,
+        matched,
+        pendingMyApproval,
+        todayNew,
+        avgHandleMinutes,
+      },
       page: q.page,
       pageSize: q.pageSize,
       stats: {
