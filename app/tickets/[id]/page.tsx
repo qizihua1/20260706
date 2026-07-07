@@ -71,7 +71,7 @@ interface TicketDetail {
   // Records
   approvalRecords?: any[];
   statusChanges?: any[];
-  compensationRecords?: { id: string; type: string; amount: number; target: string; createdAt: string }[];
+  compensationRecords?: { id: string; type: string; direction?: string; amount: number; target: string; createdAt: string; remark?: string; approvalRecordId?: string; voucherUrl?: string; paid?: boolean; paidAt?: string; payer?: string }[];
   inventoryRecords?: { id: string; sku: string; qtyChange: number; reason: string; createdAt: string }[];
   scanRecords?: { id: string; batchNo: string; skuCode: string; qty: number; locked: boolean; lockedUntil?: string }[];
 }
