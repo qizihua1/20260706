@@ -344,6 +344,11 @@ function handleRouteError(err: any): NextResponse {
     );
   }
   const isDev = process.env.NODE_ENV !== "production";
+  // #region debug-point sys-error-500: expose raw err via response header for diagnosis in prod
+  const raw = `${err?.name ?? "Error"}: ${err?.message ?? String(err)}`;
+  const stack = (err?.stack ?? "").toString().slice(0, 300);
+  const debugHeader = encodeURIComponent(`${raw}\n${stack}`).slice(0, 8000);
+  // #endregion
   return NextResponse.json(
     {
       ok: false,
@@ -351,6 +356,6 @@ function handleRouteError(err: any): NextResponse {
       code: "INTERNAL_ERROR",
       requestId: reqId,
     },
-    { status: 500 }
+    { status: 500, headers: { "x-debug-err": debugHeader } }
   );
 }
