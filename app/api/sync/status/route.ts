@@ -66,9 +66,13 @@ export async function GET() {
     const stats: Record<string, number> = {};
     for (const row of statsByCategory) {
       if (row.errorCategory) {
-        stats[row.errorCategory] = row._count;
+        stats[row.errorCategory as string] = (row as any)._count;
       }
     }
+    // 前端 SyncStatusData 期望的数组结构
+    const errorBreakdown: { category: string; count: number }[] = Object.entries(
+      stats
+    ).map(([category, count]) => ({ category, count }));
 
     let v2ServiceStatus: {
       lastReachableAt: Date | null;
@@ -107,6 +111,12 @@ export async function GET() {
       recentLogs: latestLogs,
       stats: { byErrorCategory: stats },
       v2ServiceStatus,
+      // 前端 SyncStatusData 接口期望的字段名
+      lastCallAt: lastLog?.createdAt ?? null,
+      successRate24h: successRate,
+      callCount24h: totalCalls,
+      v2Reachable: v2ServiceStatus.currentlyReachable,
+      errorBreakdown,
       data: {
         lastSyncAt: lastLog?.createdAt ?? null,
         successRate,
@@ -115,6 +125,12 @@ export async function GET() {
         latestLogs,
         stats: { byErrorCategory: stats },
         v2ServiceStatus,
+        // 前端 SyncStatusData 接口期望的字段名
+        lastCallAt: lastLog?.createdAt ?? null,
+        successRate24h: successRate,
+        callCount24h: totalCalls,
+        v2Reachable: v2ServiceStatus.currentlyReachable,
+        errorBreakdown,
       },
     });
   } catch (err: any) {
