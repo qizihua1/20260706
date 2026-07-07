@@ -75,7 +75,15 @@ export async function POST(
         );
       }
 
-      if (cannotApproveOwnTicket(ticket.reportedByUserId, caller.id)) {
+      const isSelfApprove = cannotApproveOwnTicket(
+        ticket.reportedByUserId,
+        caller.id
+      );
+      // 演示 / 开发环境豁免：拥有 L1+L2 双向审批权的超级管理员（通常是测试账号），
+      // 允许自批自核以跑通全流程；对只拥有单一审批层级的普通用户仍然拦截。
+      const isSuperApprover =
+        canApproveLevel(caller, 1) && canApproveLevel(caller, 2);
+      if (isSelfApprove && !isSuperApprover) {
         return NextResponse.json(
           {
             ok: false,
