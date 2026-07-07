@@ -69,6 +69,8 @@ interface TicketDetail {
     syncedFromV2: boolean;
     diffs?: { field: string; old: any; new: any }[];
   } | null;
+  // 原始 waybill_snapshots 表快照（详情接口原始字段映射后保留，便于 handleSyncWaybill 刷新时同步更新）
+  waybillSnapshot?: any | null;
   // Records
   approvalRecords?: any[];
   statusChanges?: any[];
