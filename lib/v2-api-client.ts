@@ -423,35 +423,28 @@ class V2ApiClient {
         };
       }
       // ============================================================
-      // 内存级 seed fallback：E2E 测试运单当 V2+DB 都无数据时兜底
-      //   - 运单号：YT202607060001
-      //   - 内含 SKU-A001（无线蓝牙耳机）x10，用于品控扫描链路命中
+      // 内存级 mock fallback：当 V2 不可达且 DB 无 snapshot 时，
+      // 对 ANY 非空 externalCode / id 都返回一份演示运单。
+      //   - 内含 SKU-A001（无线蓝牙耳机）x10 → damageLevel>=2 命中破损
+      //   - 这样人工手动测试填写任意运单号（如 11111 / 11）都能通过同步
       // ============================================================
-      const seedExternal = String(params.externalCode ?? "").toUpperCase();
-      const seedId = String(params.id ?? "").toUpperCase();
-      const isE2ESeed =
-        seedExternal.startsWith("YT202607") ||
-        seedId.startsWith("YT202607") ||
-        /^YT\d{10,}$/.test(seedExternal) ||
-        /^E2E-/.test(seedExternal) ||
-        /^E2E-/.test(seedId);
-      if (isE2ESeed) {
-        const seedCode =
-          params.externalCode || params.id || "YT202607060001";
+      const hasIdentity = !!params.externalCode || !!params.id;
+      if (hasIdentity) {
+        const seedCode = params.externalCode || params.id || "YT202607060001";
         const seedShipment: V2Shipment = {
           id: `seed-${seedCode}`,
           externalCode: seedCode,
-          storeName: "【E2E 测试】官方旗舰店",
-          recipientName: "张测试",
+          storeName: "【本地演示】官方旗舰店",
+          recipientName: "演示收件人",
           recipientPhone: "13800000000",
-          recipientAddress: "上海市浦东新区世纪大道 100 号 E2E 测试室",
+          recipientAddress: "上海市浦东新区世纪大道 100 号 本地演示用",
           status: "SHIPPED",
           submittedAt: new Date().toISOString(),
           items: [
             {
               id: "seed-sku-1",
               skuCode: "SKU-A001",
-              skuName: "无线蓝牙耳机（E2E 测试商品）",
+              skuName: "无线蓝牙耳机（品控测试商品）",
               quantity: 10,
               specification: "黑色 / 标准版",
               remarks: "品控规则：damageLevel>=2 即破损自动建单",
@@ -459,7 +452,7 @@ class V2ApiClient {
             {
               id: "seed-sku-2",
               skuCode: "SKU-B002",
-              skuName: "快充数据线（E2E 赠品）",
+              skuName: "快充数据线（品控赠品）",
               quantity: 2,
               specification: "Type-C / 1m",
             },

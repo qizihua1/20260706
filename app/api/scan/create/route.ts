@@ -12,8 +12,14 @@ import { OptimisticConcurrencyError, TicketStateTransitionError } from "@/lib/se
 
 const PostBodySchema = z
   .object({
-    waybillExternalCode: z.string().optional(),
+    waybillExternalCode: z.string().trim().min(1).optional(),
     waybillId: z.string().optional(),
+    // 前端 scan/page.tsx 原生字段名 alias（字段名与后端不同，向下兼容）
+    externalCode: z.string().trim().min(1).optional(),
+    quantity: z.coerce.number().int().min(1).optional(),
+    labelIntact: z.boolean().optional(),
+    expiryDate: z.string().optional(),
+    // --- 后端正式字段 ---
     skuCode: z.string().min(1),
     skuName: z.string().optional(),
     batchNo: z.string().min(1),
@@ -30,8 +36,8 @@ const PostBodySchema = z
       .transform((v) => (v ? new Date(v) : undefined)),
   })
   .refine(
-    (d) => d.waybillExternalCode || d.waybillId,
-    "必须提供 waybillExternalCode 或 waybillId 之一"
+    (d) => d.waybillExternalCode || d.waybillId || d.externalCode,
+    "必须提供 waybillExternalCode / externalCode（前端名）或 waybillId 之一"
   );
 
 const QC_CATEGORY_TO_SUBTYPE: Record<string, string> = {
@@ -60,7 +66,22 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const input = parsed.data;
+    const __raw = parsed.data;
+    // 合并前端 alias 字段名到后端正式字段名
+    const _waybillExternalCode = (__raw.waybillExternalCode ?? __raw.externalCode) as string | undefined;
+    const _scanQty = (__raw.scanQty ?? __raw.quantity ?? 1) as number;
+    const _labelPresent = __raw.labelPresent !== undefined
+      ? __raw.labelPresent
+      : (__raw.labelIntact !== undefined ? Boolean(__raw.labelIntact) : true);
+    const _batchExpireDate: Date | undefined = __raw.batchExpireDate ??
+      (__raw.expiryDate ? new Date(__raw.expiryDate) : undefined);
+    const input = {
+      ...__raw,
+      waybillExternalCode: _waybillExternalCode,
+      scanQty: _scanQty,
+      labelPresent: _labelPresent,
+      batchExpireDate: _batchExpireDate,
+    };
 
     const caller = await resolveCurrentUser(headers());
     if (

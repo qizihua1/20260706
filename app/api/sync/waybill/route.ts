@@ -10,7 +10,10 @@ import {
   TicketStateTransitionError,
 } from "@/lib/services/ticket-state-machine";
 import { PermissionDeniedError } from "@/lib/auth/permission-checks";
-import { syncWaybillFromV2 } from "@/lib/services/data-sync-service";
+import {
+  syncWaybillFromV2,
+  WaybillSyncError,
+} from "@/lib/services/data-sync-service";
 
 const PostBodySchema = z
   .object({
@@ -140,6 +143,24 @@ function handleRouteError(err: any): NextResponse {
         requestId: reqId,
       },
       { status: 422 }
+    );
+  }
+  if (err instanceof WaybillSyncError) {
+    const statusMap: Record<string, number> = {
+      BAD_PARAM: 400,
+      NOT_FOUND: 404,
+      V2_FAILED_USE_FALLBACK: 502,
+      V2_FAILED_NO_LOCAL: 502,
+    };
+    const status = statusMap[err.reason] ?? 502;
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err.message,
+        code: "WAYBILL_SYNC_" + err.reason,
+        requestId: reqId,
+      },
+      { status }
     );
   }
   const isDev = process.env.NODE_ENV !== "production";
